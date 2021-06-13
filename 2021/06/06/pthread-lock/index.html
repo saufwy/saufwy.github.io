@@ -79,13 +79,19 @@
 
 
 
-<meta property="og:type" content="website">
-<meta property="og:title" content="Frank">
-<meta property="og:url" content="https://saufwy.github.io/index.html">
+<meta name="description" content="基本概念多进程、多线程环境下同时读写共享数据资源会引起数据状态不一致, Linux 下使用pthread_mutex 来保护共享资源, 使得同一时间只能有一个进程或一个线程访问共享资源。pthread_mutex 值得注意的3个属性是: 类型属性、进程共享属性、健壮属性。本文以pthread_mutex 3 个重要属性为切入点, 结合glibc-2.12.2 mutex 相关源码分析mutex运作">
+<meta property="og:type" content="article">
+<meta property="og:title" content="pthread_mutex_lock 源码剖析">
+<meta property="og:url" content="https://saufwy.github.io/2021/06/06/pthread-lock/index.html">
 <meta property="og:site_name" content="Frank">
+<meta property="og:description" content="基本概念多进程、多线程环境下同时读写共享数据资源会引起数据状态不一致, Linux 下使用pthread_mutex 来保护共享资源, 使得同一时间只能有一个进程或一个线程访问共享资源。pthread_mutex 值得注意的3个属性是: 类型属性、进程共享属性、健壮属性。本文以pthread_mutex 3 个重要属性为切入点, 结合glibc-2.12.2 mutex 相关源码分析mutex运作">
 <meta property="og:locale" content="en_US">
+<meta property="og:image" content="https://saufwy.github.io/images/pthread_mutex_types.gif">
+<meta property="article:published_time" content="2021-06-06T09:38:13.243Z">
+<meta property="article:modified_time" content="2021-06-13T13:50:21.588Z">
 <meta property="article:author" content="fanwenyao">
 <meta name="twitter:card" content="summary">
+<meta name="twitter:image" content="https://saufwy.github.io/images/pthread_mutex_types.gif">
 
 
 
@@ -115,13 +121,13 @@
 
 
 
-  <link rel="canonical" href="https://saufwy.github.io/"/>
+  <link rel="canonical" href="https://saufwy.github.io/2021/06/06/pthread-lock/"/>
 
 
 
 
 
-  <title>Frank</title>
+  <title>pthread_mutex_lock 源码剖析 | Frank</title>
   
 
 
@@ -140,8 +146,7 @@
     
   
 
-  <div class="container sidebar-position-left 
-  page-home">
+  <div class="container sidebar-position-left page-post-detail">
     <div class="headband"></div>
 
     <header id="header" class="header" itemscope itemtype="http://schema.org/WPHeader">
@@ -224,9 +229,9 @@
         <div class="content-wrap">
           <div id="content" class="content">
             
-  <section id="posts" class="posts-expand">
+
+  <div id="posts" class="posts-expand">
     
-      
 
   
 
@@ -256,9 +261,7 @@
 
         
         
-          <h1 class="post-title" itemprop="name headline">
-                
-                <a class="post-title-link" href="/2021/06/06/pthread-lock/" itemprop="url">pthread_mutex_lock 源码剖析</a></h1>
+          <h1 class="post-title" itemprop="name headline">pthread_mutex_lock 源码剖析</h1>
         
 
         <div class="post-meta">
@@ -330,9 +333,7 @@
       
 
       
-        
-          
-            <h3 id="基本概念"><a href="#基本概念" class="headerlink" title="基本概念"></a>基本概念</h3><p>多进程、多线程环境下同时读写共享数据资源会引起数据状态不一致, Linux 下使用pthread_mutex 来保护共享资源, 使得同一时间只能有一个进程或一个线程访问共享资源。pthread_mutex 值得注意的3个属性是: 类型属性、进程共享属性、健壮属性。本文以pthread_mutex 3 个重要属性为切入点, 结合glibc-2.12.2 mutex 相关源码分析mutex运作机制。</p>
+        <h3 id="基本概念"><a href="#基本概念" class="headerlink" title="基本概念"></a>基本概念</h3><p>多进程、多线程环境下同时读写共享数据资源会引起数据状态不一致, Linux 下使用pthread_mutex 来保护共享资源, 使得同一时间只能有一个进程或一个线程访问共享资源。pthread_mutex 值得注意的3个属性是: 类型属性、进程共享属性、健壮属性。本文以pthread_mutex 3 个重要属性为切入点, 结合glibc-2.12.2 mutex 相关源码分析mutex运作机制。</p>
 <h3 id="类型属性"><a href="#类型属性" class="headerlink" title="类型属性"></a>类型属性</h3><p>pthread_mutex 共有4种类型, 分别是TIMED、RECURSIVE、ERRORCHECK、ADAPTIVE, 不同的类型的锁具有不同的特性, 这里需要强调的一点是, 这些特性均是用户态实现。类型定义如下:</p>
 <figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br></pre></td><td class="code"><pre><span class="line">//  代码段摘自glibc-2.12.2 pthread.h</span><br><span class="line"></span><br><span class="line">enum</span><br><span class="line">&#123;</span><br><span class="line">  PTHREAD_MUTEX_TIMED_NP,</span><br><span class="line">  PTHREAD_MUTEX_RECURSIVE_NP,</span><br><span class="line">  PTHREAD_MUTEX_ERRORCHECK_NP,</span><br><span class="line">  PTHREAD_MUTEX_ADAPTIVE_NP</span><br><span class="line">#if defined __USE_UNIX98 || defined __USE_XOPEN2K8</span><br><span class="line">  ,</span><br><span class="line">  PTHREAD_MUTEX_NORMAL = PTHREAD_MUTEX_TIMED_NP,</span><br><span class="line">  PTHREAD_MUTEX_RECURSIVE = PTHREAD_MUTEX_RECURSIVE_NP,</span><br><span class="line">  PTHREAD_MUTEX_ERRORCHECK = PTHREAD_MUTEX_ERRORCHECK_NP,</span><br><span class="line">  PTHREAD_MUTEX_DEFAULT = PTHREAD_MUTEX_NORMAL</span><br><span class="line">#endif</span><br><span class="line">#ifdef __USE_GNU</span><br><span class="line">  /* For compatibility.  */</span><br><span class="line">  , PTHREAD_MUTEX_FAST_NP = PTHREAD_MUTEX_TIMED_NP</span><br><span class="line">#endif</span><br><span class="line">&#125;;</span><br></pre></td></tr></table></figure>
 <p>4种类型锁特性描述如下:<br><img src="/images/pthread_mutex_types.gif" alt="pthread_mutex types"></p>
@@ -355,8 +356,6 @@
 <li>使用自旋锁在特定应用环境下可以避免用户态、内核态切换, 提高应用程序性能</li>
 </ol>
 
-          
-        
       
     </div>
     
@@ -373,168 +372,28 @@
       
 
       
-
-      
-
       
       
-        <div class="post-eof"></div>
+
       
-    </footer>
-  </div>
-  
-  
-  
-  </article>
-
-
-    
-      
-
-  
-
-  
-  
-  
-
-  <article class="post post-type-normal" itemscope itemtype="http://schema.org/Article">
-  
-  
-  
-  <div class="post-block">
-    <link itemprop="mainEntityOfPage" href="https://saufwy.github.io/2021/06/05/aac-format/">
-
-    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
-      <meta itemprop="name" content="">
-      <meta itemprop="description" content="">
-      <meta itemprop="image" content="/images/avatar.gif">
-    </span>
-
-    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
-      <meta itemprop="name" content="Frank">
-    </span>
-
-    
-      <header class="post-header">
-
-        
-        
-          <h1 class="post-title" itemprop="name headline">
-                
-                <a class="post-title-link" href="/2021/06/05/aac-format/" itemprop="url">AAC 音频格式</a></h1>
-        
-
-        <div class="post-meta">
-          <span class="post-time">
+        <div class="post-nav">
+          <div class="post-nav-next post-nav-item">
             
-              <span class="post-meta-item-icon">
-                <i class="fa fa-calendar-o"></i>
-              </span>
-              
-                <span class="post-meta-item-text">Posted on</span>
-              
-              <time title="Post created" itemprop="dateCreated datePublished" datetime="2021-06-05T17:52:29+08:00">
-                2021-06-05
-              </time>
+              <a href="/2021/06/05/aac-format/" rel="next" title="AAC 音频格式">
+                <i class="fa fa-chevron-left"></i> AAC 音频格式
+              </a>
             
+          </div>
 
+          <span class="post-nav-divider"></span>
+
+          <div class="post-nav-prev post-nav-item">
             
-
-            
-          </span>
-
-          
-            <span class="post-category" >
-            
-              <span class="post-meta-divider">|</span>
-            
-              <span class="post-meta-item-icon">
-                <i class="fa fa-folder-o"></i>
-              </span>
-              
-                <span class="post-meta-item-text">In</span>
-              
-              
-                <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
-                  <a href="/categories/%E9%9F%B3%E8%A7%86%E9%A2%91%E5%A4%84%E7%90%86/" itemprop="url" rel="index">
-                    <span itemprop="name">音视频处理</span>
-                  </a>
-                </span>
-
-                
-                
-              
-            </span>
-          
-
-          
-            
-          
-
-          
-          
-
-          
-
-          
-
-          
-
+          </div>
         </div>
-      </header>
-    
-
-    
-    
-    
-    <div class="post-body" itemprop="articleBody">
-
-      
       
 
       
-        
-          
-            <h3 id="基本概念"><a href="#基本概念" class="headerlink" title="基本概念"></a>基本概念</h3><p>AAC(Advanced Audio Coding) 是一种专为音频编码设计的压缩标准, 编码后的数据通常包含两部分信息 descriptive information + compressed data, descriptive information 包含音频的采样率、通道数、编码profile等信息, compressed data 就是PCM原始数据经过压缩后的输出。 ADTS 与 AudioSpecificConfig + Compressed Data是最常见的AAC数据格式。 更多应用格式可参考 ISO/IEC 14496-3:2005 0.2.1, 其格式与本文所述两种格式类似。</p>
-<hr>
-<h3 id="ADTS-Format"><a href="#ADTS-Format" class="headerlink" title="ADTS Format"></a>ADTS Format</h3><h4 id="ADTS-简述"><a href="#ADTS-简述" class="headerlink" title="ADTS 简述"></a>ADTS 简述</h4><p>ADTS(Aduio Data Transport Stream) 通常用于MPEG TS, 直播协议HLS中音频数据使用该格式传输。adts 数据帧由adts header + compressed data 组成，adts header 即上文提到的description information。adts帧由于每帧都包含解码必备信息，任意一帧都可以作为解码的起始点，但是在音频描述信息不会变化的应用场景中，adts会引起部分传输带宽浪费。 adts header 包含adts fixed header + adts variable header。adts 语义可参考 ISO/IEC 14496-3:2005 Annex 1.A(标准文档对adts定义了许多扩展,大多数情况下用不到), 为了更方便adts header解析, 我以表格的形式展示如下:</p>
-<h4 id="ADTS-语义"><a href="#ADTS-语义" class="headerlink" title="ADTS 语义"></a>ADTS 语义</h4><p><img src="https://saufwy.github.io/images/adts_fixed_header.gif" alt="adts fixed header"></p>
-<p><img src="https://saufwy.github.io/images/adts_variable_header.gif" alt="adts fixed header"></p>
-<h4 id="ADTS-实例解析"><a href="#ADTS-实例解析" class="headerlink" title="ADTS 实例解析"></a>ADTS 实例解析</h4><p>// 使用ffmpeg 生成adts数据文件<br>// ffmpeg -i test.mp4 -map 0:a -c copy test.aac</p>
-<p>ADTS fixed header 实例分析(28bit，剩余bit是可变头信息)<br>hex : FF  F1 54 80 03 FF FC<br>bin  : 1111 1111 1111 0001 0101 0100 1000 0000 0000 0011 1111 1111 1111 1100<br>syncword = 0xfff<br>id = 0  // mpge-4<br>layer = 00<br>protection_absent = 1 // 没有crc校验<br>profile = 01   // aac low<br>sampling_frequency_index = 0101  // 5 = 32000Hz<br>private_bit = 0  // 编码设置为0<br>channel_configuration = 010 // 2  = 双声道<br>origin_copy = 0 // 编码时设置  </p>
-<p>home = 0    // 编码时设置<br>copyrighted_id_bit = 0;  编码时设置为0<br>copyrighted_id_start = 0; 编码时设置为0<br>aac_frame_length = 31； 31 - 7 = 24， aac 数据长度为24字节<br>adts_buffer_fullness = 0x7ff;  表示码率可变<br>number_of_raw_data_blocks_in_frame = 0； 0 + 1 = 1表示包含一个原始帧  </p>
-<h4 id="ADTS-ffmpeg-解析代码"><a href="#ADTS-ffmpeg-解析代码" class="headerlink" title="ADTS ffmpeg 解析代码"></a>ADTS ffmpeg 解析代码</h4><figure class="highlight c++"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br><span class="line">37</span><br><span class="line">38</span><br><span class="line">39</span><br><span class="line">40</span><br><span class="line">41</span><br><span class="line">42</span><br><span class="line">43</span><br><span class="line">44</span><br><span class="line">45</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">// 代码段摘自 ffmpeg/libavcodec/adts_header.c</span></span><br><span class="line"></span><br><span class="line"><span class="function"><span class="keyword">int</span> <span class="title">ff_adts_header_parse</span><span class="params">(GetBitContext *gbc, AACADTSHeaderInfo *hdr)</span></span></span><br><span class="line"><span class="function"></span>&#123;</span><br><span class="line">    <span class="keyword">int</span> size, rdb, ch, sr;</span><br><span class="line">    <span class="keyword">int</span> aot, crc_abs;</span><br><span class="line"></span><br><span class="line">    <span class="keyword">if</span> (<span class="built_in">get_bits</span>(gbc, <span class="number">12</span>) != <span class="number">0xfff</span>)</span><br><span class="line">        <span class="keyword">return</span> AAC_AC3_PARSE_ERROR_SYNC;</span><br><span class="line"></span><br><span class="line">    <span class="built_in">skip_bits1</span>(gbc);             <span class="comment">/* id */</span></span><br><span class="line">    <span class="built_in">skip_bits</span>(gbc, <span class="number">2</span>);           <span class="comment">/* layer */</span></span><br><span class="line">    crc_abs = <span class="built_in">get_bits1</span>(gbc);    <span class="comment">/* protection_absent */</span></span><br><span class="line">    aot     = <span class="built_in">get_bits</span>(gbc, <span class="number">2</span>);  <span class="comment">/* profile_objecttype */</span></span><br><span class="line">    sr      = <span class="built_in">get_bits</span>(gbc, <span class="number">4</span>);  <span class="comment">/* sample_frequency_index */</span></span><br><span class="line">    <span class="keyword">if</span> (!avpriv_mpeg4audio_sample_rates[sr])</span><br><span class="line">        <span class="keyword">return</span> AAC_AC3_PARSE_ERROR_SAMPLE_RATE;</span><br><span class="line">    <span class="built_in">skip_bits1</span>(gbc);             <span class="comment">/* private_bit */</span></span><br><span class="line">    ch = <span class="built_in">get_bits</span>(gbc, <span class="number">3</span>);       <span class="comment">/* channel_configuration */</span></span><br><span class="line"></span><br><span class="line">    <span class="built_in">skip_bits1</span>(gbc);             <span class="comment">/* original/copy */</span></span><br><span class="line">    <span class="built_in">skip_bits1</span>(gbc);             <span class="comment">/* home */</span></span><br><span class="line"></span><br><span class="line">    <span class="comment">/* adts_variable_header */</span></span><br><span class="line">    <span class="built_in">skip_bits1</span>(gbc);             <span class="comment">/* copyright_identification_bit */</span></span><br><span class="line">    <span class="built_in">skip_bits1</span>(gbc);             <span class="comment">/* copyright_identification_start */</span></span><br><span class="line">    size = <span class="built_in">get_bits</span>(gbc, <span class="number">13</span>);    <span class="comment">/* aac_frame_length */</span></span><br><span class="line">    <span class="keyword">if</span> (size &lt; AV_AAC_ADTS_HEADER_SIZE)</span><br><span class="line">        <span class="keyword">return</span> AAC_AC3_PARSE_ERROR_FRAME_SIZE;</span><br><span class="line"></span><br><span class="line">    <span class="built_in">skip_bits</span>(gbc, <span class="number">11</span>);          <span class="comment">/* adts_buffer_fullness */</span></span><br><span class="line">    rdb = <span class="built_in">get_bits</span>(gbc, <span class="number">2</span>);      <span class="comment">/* number_of_raw_data_blocks_in_frame */</span></span><br><span class="line"></span><br><span class="line">    hdr-&gt;object_type    = aot + <span class="number">1</span>;</span><br><span class="line">    hdr-&gt;chan_config    = ch;</span><br><span class="line">    hdr-&gt;crc_absent     = crc_abs;</span><br><span class="line">    hdr-&gt;num_aac_frames = rdb + <span class="number">1</span>;</span><br><span class="line">    hdr-&gt;sampling_index = sr;</span><br><span class="line">    hdr-&gt;sample_rate    = avpriv_mpeg4audio_sample_rates[sr];</span><br><span class="line">    hdr-&gt;samples        = (rdb + <span class="number">1</span>) * <span class="number">1024</span>;</span><br><span class="line">    hdr-&gt;bit_rate       = size * <span class="number">8</span> * hdr-&gt;sample_rate / hdr-&gt;samples;</span><br><span class="line"></span><br><span class="line">    <span class="keyword">return</span> size;</span><br><span class="line">&#125;</span><br><span class="line"></span><br></pre></td></tr></table></figure>
-<hr>
-<h3 id="AudioSpecificConfig-Compressed-Data"><a href="#AudioSpecificConfig-Compressed-Data" class="headerlink" title="AudioSpecificConfig + Compressed Data"></a>AudioSpecificConfig + Compressed Data</h3><h4 id="AudioSpecificConfig-简述"><a href="#AudioSpecificConfig-简述" class="headerlink" title="AudioSpecificConfig 简述"></a>AudioSpecificConfig 简述</h4><p>上文提到adts每个数据帧都包含描述信息, 这在音频属性不变的情况下会造成一定的带宽和存储空间浪费, AudioSepecificConfig + Compressed Data的封装格式与之不同, 只需要在数据流的起始数包含描述信息AudioSepecificConfig, 后续数据包只包含Compressed Data, 在音频属性改变时, 刷新AudioSepecificConfig 信息即可。 rtmp flv mp4 均使用该种格式传输、存储aac数据。</p>
-<h4 id="AudioSpecificConfig-语义"><a href="#AudioSpecificConfig-语义" class="headerlink" title="AudioSpecificConfig 语义"></a>AudioSpecificConfig 语义</h4><p><img src="https://saufwy.github.io/images/aac_sequence_header.gif" alt="aac sequence header"></p>
-<h4 id="AudioSpecificConfig-代码生成"><a href="#AudioSpecificConfig-代码生成" class="headerlink" title="AudioSpecificConfig 代码生成"></a>AudioSpecificConfig 代码生成</h4><figure class="highlight c++"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">// 代码段摘自 faac-1.28</span></span><br><span class="line"></span><br><span class="line"><span class="function"><span class="keyword">int</span> FAACAPI <span class="title">faacEncGetDecoderSpecificInfo</span><span class="params">(faacEncHandle hEncoder,<span class="keyword">unsigned</span> <span class="keyword">char</span>** ppBuffer,<span class="keyword">unsigned</span> <span class="keyword">long</span>* pSizeOfDecoderSpecificInfo)</span></span></span><br><span class="line"><span class="function"></span>&#123;</span><br><span class="line">    BitStream* pBitStream = <span class="literal">NULL</span>;</span><br><span class="line"></span><br><span class="line">    <span class="keyword">if</span>((hEncoder == <span class="literal">NULL</span>) || (ppBuffer == <span class="literal">NULL</span>) || (pSizeOfDecoderSpecificInfo == <span class="literal">NULL</span>)) &#123;</span><br><span class="line">        <span class="keyword">return</span> <span class="number">-1</span>;</span><br><span class="line">    &#125;</span><br><span class="line"></span><br><span class="line">    <span class="keyword">if</span>(hEncoder-&gt;config.mpegVersion == MPEG2)&#123;</span><br><span class="line">        <span class="keyword">return</span> <span class="number">-2</span>; <span class="comment">/* not supported */</span></span><br><span class="line">    &#125;</span><br><span class="line"></span><br><span class="line">    *pSizeOfDecoderSpecificInfo = <span class="number">2</span>;</span><br><span class="line">    *ppBuffer = <span class="built_in">malloc</span>(<span class="number">2</span>);</span><br><span class="line"></span><br><span class="line">    <span class="keyword">if</span>(*ppBuffer != <span class="literal">NULL</span>)&#123;</span><br><span class="line"></span><br><span class="line">        <span class="built_in">memset</span>(*ppBuffer,<span class="number">0</span>,*pSizeOfDecoderSpecificInfo);</span><br><span class="line">        pBitStream = <span class="built_in">OpenBitStream</span>(*pSizeOfDecoderSpecificInfo, *ppBuffer);</span><br><span class="line">        <span class="built_in">PutBit</span>(pBitStream, hEncoder-&gt;config.aacObjectType, <span class="number">5</span>);</span><br><span class="line">        <span class="built_in">PutBit</span>(pBitStream, hEncoder-&gt;sampleRateIdx, <span class="number">4</span>);</span><br><span class="line">        <span class="built_in">PutBit</span>(pBitStream, hEncoder-&gt;numChannels, <span class="number">4</span>);</span><br><span class="line">        <span class="built_in">CloseBitStream</span>(pBitStream);</span><br><span class="line"></span><br><span class="line">        <span class="keyword">return</span> <span class="number">0</span>;</span><br><span class="line">    &#125; <span class="keyword">else</span> &#123;</span><br><span class="line">        <span class="keyword">return</span> <span class="number">-3</span>;</span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br><span class="line"></span><br></pre></td></tr></table></figure>
-<hr>
-<h3 id="特别说明"><a href="#特别说明" class="headerlink" title="特别说明"></a>特别说明</h3><p>1.ADTS profile 与 AudioSpecificConfig audioObjectType 均标识编码等级, 在mpeg-4下相同的编码等级对应的数值并不一样, 例如 AAC-Main 在 adts帧中用数值0表示, 在AudioSpecificConfig中用1表示, 更多详细信息可参考ISO/IEC 14496-3:2005</p>
-
-          
-        
-      
-    </div>
-    
-    
-    
-
-    
-
-    
-
-    
-
-    <footer class="post-footer">
-      
-
-      
-
-      
-
-      
-      
-        <div class="post-eof"></div>
       
     </footer>
   </div>
@@ -544,10 +403,11 @@
   </article>
 
 
-    
-  </section>
 
-  
+    <div class="post-spread">
+      
+    </div>
+  </div>
 
 
           </div>
@@ -555,6 +415,10 @@
 
 
           
+
+  
+
+
 
         </div>
         
@@ -575,8 +439,17 @@
       
 
       
+        <ul class="sidebar-nav motion-element">
+          <li class="sidebar-nav-toc sidebar-nav-active" data-target="post-toc-wrap">
+            Table of Contents
+          </li>
+          <li class="sidebar-nav-overview" data-target="site-overview-wrap">
+            Overview
+          </li>
+        </ul>
+      
 
-      <section class="site-overview-wrap sidebar-panel sidebar-panel-active">
+      <section class="site-overview-wrap sidebar-panel">
         <div class="site-overview">
           <div class="site-author motion-element" itemprop="author" itemscope itemtype="http://schema.org/Person">
             
@@ -627,6 +500,22 @@
         </div>
       </section>
 
+      
+      <!--noindex-->
+        <section class="post-toc-wrap motion-element sidebar-panel sidebar-panel-active">
+          <div class="post-toc">
+
+            
+              
+            
+
+            
+              <div class="post-toc-content"><ol class="nav"><li class="nav-item nav-level-3"><a class="nav-link" href="#%E5%9F%BA%E6%9C%AC%E6%A6%82%E5%BF%B5"><span class="nav-number">1.</span> <span class="nav-text">基本概念</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#%E7%B1%BB%E5%9E%8B%E5%B1%9E%E6%80%A7"><span class="nav-number">2.</span> <span class="nav-text">类型属性</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#%E8%BF%9B%E7%A8%8B%E5%85%B1%E4%BA%AB%E5%B1%9E%E6%80%A7"><span class="nav-number">3.</span> <span class="nav-text">进程共享属性</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#%E5%81%A5%E5%A3%AE%E5%B1%9E%E6%80%A7"><span class="nav-number">4.</span> <span class="nav-text">健壮属性</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#%E5%BA%94%E7%94%A8%E5%B0%8F%E7%BB%93"><span class="nav-number">5.</span> <span class="nav-text">应用小结</span></a></li></ol></div>
+            
+
+          </div>
+        </section>
+      <!--/noindex-->
       
 
       
@@ -767,6 +656,10 @@
 
 
   
+  <script type="text/javascript" src="/js/src/scrollspy.js?v=5.1.4"></script>
+<script type="text/javascript" src="/js/src/post-details.js?v=5.1.4"></script>
+
+
 
   
 
