@@ -1,0 +1,741 @@
+<!DOCTYPE html>
+
+
+
+  
+
+
+<html class="theme-next gemini use-motion" lang="en">
+<head>
+  <meta charset="UTF-8"/>
+<meta http-equiv="X-UA-Compatible" content="IE=edge" />
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1"/>
+<meta name="theme-color" content="#222">
+
+
+
+
+
+
+
+
+
+<meta http-equiv="Cache-Control" content="no-transform" />
+<meta http-equiv="Cache-Control" content="no-siteapp" />
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  
+  
+  <link href="/lib/fancybox/source/jquery.fancybox.css?v=2.1.5" rel="stylesheet" type="text/css" />
+
+
+
+
+
+
+
+<link href="/lib/font-awesome/css/font-awesome.min.css?v=4.6.2" rel="stylesheet" type="text/css" />
+
+<link href="/css/main.css?v=5.1.4" rel="stylesheet" type="text/css" />
+
+
+  <link rel="apple-touch-icon" sizes="180x180" href="/images/apple-touch-icon-next.png?v=5.1.4">
+
+
+  <link rel="icon" type="image/png" sizes="32x32" href="/images/favicon-32x32-next.png?v=5.1.4">
+
+
+  <link rel="icon" type="image/png" sizes="16x16" href="/images/favicon-16x16-next.png?v=5.1.4">
+
+
+  <link rel="mask-icon" href="/images/logo.svg?v=5.1.4" color="#222">
+
+
+
+
+
+  <meta name="keywords" content="Hexo, NexT" />
+
+
+
+
+
+
+
+
+
+
+<meta name="description" content="基本概念MPU (Media Process Unit) : 音视频媒体处理服务, 提供对音视频流进行转码、转封装服务。 需求来源随着直播行业大火, 各类直播产品层出不穷, 满足不同的用户需求及直播体验。不同应用场景、不同人群对直播延迟、清晰度、流畅度要求有所不同。例如, 才艺秀直播多数观众更关注画质、流畅度, 对直播延迟并不很敏感, 而参与连麦互动的观众为了能够保证正常的双向互动, 延迟要求要在">
+<meta property="og:type" content="article">
+<meta property="og:title" content="MPU 服务设计与实现">
+<meta property="og:url" content="https://saufwy.github.io/2021/06/26/media-process-unit/index.html">
+<meta property="og:site_name" content="Frank">
+<meta property="og:description" content="基本概念MPU (Media Process Unit) : 音视频媒体处理服务, 提供对音视频流进行转码、转封装服务。 需求来源随着直播行业大火, 各类直播产品层出不穷, 满足不同的用户需求及直播体验。不同应用场景、不同人群对直播延迟、清晰度、流畅度要求有所不同。例如, 才艺秀直播多数观众更关注画质、流畅度, 对直播延迟并不很敏感, 而参与连麦互动的观众为了能够保证正常的双向互动, 延迟要求要在">
+<meta property="og:locale" content="en_US">
+<meta property="og:image" content="https://saufwy.github.io/images/live.png">
+<meta property="og:image" content="https://saufwy.github.io/images/pipeline.png">
+<meta property="og:image" content="https://saufwy.github.io/images/zrtc2rtmp.png">
+<meta property="og:image" content="https://saufwy.github.io/images/mpu-architecture.png">
+<meta property="article:published_time" content="2021-06-26T09:58:41.120Z">
+<meta property="article:modified_time" content="2021-06-27T12:35:04.281Z">
+<meta property="article:author" content="fanwenyao">
+<meta name="twitter:card" content="summary">
+<meta name="twitter:image" content="https://saufwy.github.io/images/live.png">
+
+
+
+<script type="text/javascript" id="hexo.configurations">
+  var NexT = window.NexT || {};
+  var CONFIG = {
+    root: '',
+    scheme: 'Gemini',
+    version: '5.1.4',
+    sidebar: {"position":"left","display":"post","offset":12,"b2t":false,"scrollpercent":false,"onmobile":false},
+    fancybox: true,
+    tabs: true,
+    motion: {"enable":true,"async":false,"transition":{"post_block":"fadeIn","post_header":"slideDownIn","post_body":"slideDownIn","coll_header":"slideLeftIn","sidebar":"slideUpIn"}},
+    duoshuo: {
+      userId: '0',
+      author: 'Author'
+    },
+    algolia: {
+      applicationID: '',
+      apiKey: '',
+      indexName: '',
+      hits: {"per_page":10},
+      labels: {"input_placeholder":"Search for Posts","hits_empty":"We didn't find any results for the search: ${query}","hits_stats":"${hits} results found in ${time} ms"}
+    }
+  };
+</script>
+
+
+
+  <link rel="canonical" href="https://saufwy.github.io/2021/06/26/media-process-unit/"/>
+
+
+
+
+
+  <title>MPU 服务设计与实现 | Frank</title>
+  
+
+
+
+
+
+
+
+
+<meta name="generator" content="Hexo 5.4.0"></head>
+
+<body itemscope itemtype="http://schema.org/WebPage" lang="en">
+
+  
+  
+    
+  
+
+  <div class="container sidebar-position-left page-post-detail">
+    <div class="headband"></div>
+
+    <header id="header" class="header" itemscope itemtype="http://schema.org/WPHeader">
+      <div class="header-inner"><div class="site-brand-wrapper">
+  <div class="site-meta ">
+    
+
+    <div class="custom-logo-site-title">
+      <a href="/"  class="brand" rel="start">
+        <span class="logo-line-before"><i></i></span>
+        <span class="site-title">Frank</span>
+        <span class="logo-line-after"><i></i></span>
+      </a>
+    </div>
+      
+        <p class="site-subtitle"></p>
+      
+  </div>
+
+  <div class="site-nav-toggle">
+    <button>
+      <span class="btn-bar"></span>
+      <span class="btn-bar"></span>
+      <span class="btn-bar"></span>
+    </button>
+  </div>
+</div>
+
+<nav class="site-nav">
+  
+
+  
+    <ul id="menu" class="menu">
+      
+        
+        <li class="menu-item menu-item-home">
+          <a href="/" rel="section">
+            
+              <i class="menu-item-icon fa fa-fw fa-home"></i> <br />
+            
+            Home
+          </a>
+        </li>
+      
+        
+        <li class="menu-item menu-item-categories">
+          <a href="/categories/" rel="section">
+            
+              <i class="menu-item-icon fa fa-fw fa-th"></i> <br />
+            
+            Categories
+          </a>
+        </li>
+      
+        
+        <li class="menu-item menu-item-archives">
+          <a href="/archives/" rel="section">
+            
+              <i class="menu-item-icon fa fa-fw fa-question-circle"></i> <br />
+            
+            Archives
+          </a>
+        </li>
+      
+
+      
+    </ul>
+  
+
+  
+</nav>
+
+
+
+ </div>
+    </header>
+
+    <main id="main" class="main">
+      <div class="main-inner">
+        <div class="content-wrap">
+          <div id="content" class="content">
+            
+
+  <div id="posts" class="posts-expand">
+    
+
+  
+
+  
+  
+  
+
+  <article class="post post-type-normal" itemscope itemtype="http://schema.org/Article">
+  
+  
+  
+  <div class="post-block">
+    <link itemprop="mainEntityOfPage" href="https://saufwy.github.io/2021/06/26/media-process-unit/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="name" content="">
+      <meta itemprop="description" content="">
+      <meta itemprop="image" content="/images/avatar.gif">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="Frank">
+    </span>
+
+    
+      <header class="post-header">
+
+        
+        
+          <h1 class="post-title" itemprop="name headline">MPU 服务设计与实现</h1>
+        
+
+        <div class="post-meta">
+          <span class="post-time">
+            
+              <span class="post-meta-item-icon">
+                <i class="fa fa-calendar-o"></i>
+              </span>
+              
+                <span class="post-meta-item-text">Posted on</span>
+              
+              <time title="Post created" itemprop="dateCreated datePublished" datetime="2021-06-26T17:58:41+08:00">
+                2021-06-26
+              </time>
+            
+
+            
+
+            
+          </span>
+
+          
+            <span class="post-category" >
+            
+              <span class="post-meta-divider">|</span>
+            
+              <span class="post-meta-item-icon">
+                <i class="fa fa-folder-o"></i>
+              </span>
+              
+                <span class="post-meta-item-text">In</span>
+              
+              
+                <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
+                  <a href="/categories/%E5%90%8E%E7%AB%AF%E6%9E%B6%E6%9E%84/" itemprop="url" rel="index">
+                    <span itemprop="name">后端架构</span>
+                  </a>
+                </span>
+
+                
+                
+              
+            </span>
+          
+
+          
+            
+          
+
+          
+          
+
+          
+
+          
+
+          
+
+        </div>
+      </header>
+    
+
+    
+    
+    
+    <div class="post-body" itemprop="articleBody">
+
+      
+      
+
+      
+        <h3 id="基本概念"><a href="#基本概念" class="headerlink" title="基本概念"></a>基本概念</h3><p>MPU (Media Process Unit) : 音视频媒体处理服务, 提供对音视频流进行转码、转封装服务。</p>
+<h3 id="需求来源"><a href="#需求来源" class="headerlink" title="需求来源"></a>需求来源</h3><p>随着直播行业大火, 各类直播产品层出不穷, 满足不同的用户需求及直播体验。不同应用场景、不同人群对直播延迟、清晰度、流畅度要求有所不同。例如, 才艺秀直播多数观众更关注画质、流畅度, 对直播延迟并不很敏感, 而参与连麦互动的观众为了能够保证正常的双向互动, 延迟要求要在500ms 以下, 还有部分观众因网络原因更愿意切换到清晰度较低的画质来保证流畅度。  </p>
+<p>多直播协议 + 多码流 为直播各类需求提供了技术支撑。这就意味着一场直播需要多种直播协议、多清晰度流的存在。如果把这些功能需求放到主播端, 不仅对主播端直播设备性能有巨大挑战, 而且会影响直播质量, 不利于业务快速升级迭代。 业界一种通用做法是主播推一路高清流到服务, 通过MPU 服务实现多协议、多清晰度流的转换。</p>
+<h3 id="场景描述"><a href="#场景描述" class="headerlink" title="场景描述"></a>场景描述</h3><p>下图展示了主播源端推 rtc 流到 rtc 服务, MPU 从rtc服务拉流, 将rtc流转换为rtmp协议, 推流到百度、腾讯 cdn。</p>
+<p><img src="/images/live.png" alt="live"></p>
+<h3 id="Pipeline-模型抽象"><a href="#Pipeline-模型抽象" class="headerlink" title="Pipeline 模型抽象"></a>Pipeline 模型抽象</h3><p>音视频转码转封装处理流程都可以用如下图所示简单模型表示:</p>
+<p><img src="/images/pipeline.png" alt="pipeline"></p>
+<p>这个简单模型真的可以满足所有的应用场景吗？接下来我们以 1 路高清 rtc 流转 2 路 rtmp 流和 1 路标清 rtc 流为例, 说明简单模型发挥的强大功效:<br>rtc 流输出h264 nalu frame 和 opus frame, rtmp 协议音频需要 aac 编码数据, 因此需要将 opus frame 先解码后 aac 编码输出给 rtmp 流; 标清 rtc 流需要更低的码率, 因此需要将视频数据先转码然后输出给 rtc 标清流。</p>
+<p><img src="/images/zrtc2rtmp.png" alt="zrtc2rtmp"></p>
+<h3 id="架构设计"><a href="#架构设计" class="headerlink" title="架构设计"></a>架构设计</h3><p>通过前两节的模型图, 我们可以看出 MPU 服务是由许多节点(Input、AudioFilter、VideoFilter、Output) 及节点之间的数据传递关系组成, 节点及节点数据传递关系最终构成一个图, 因此实现一个 MPU 服务的过程就是一个 build graph 过程。<br>我们将 MPU 服务拆分为两部分: graph generator + media-processing(本文主要阐述音视频处理部分, 为避免过多额外的逻辑负担, 省略了真实环境中集群分布式架构说明)</p>
+<p><img src="/images/mpu-architecture.png" alt="mpu-architecture"></p>
+<ul>
+<li>graph generator : 接受不同的业务请求, 根据不同的业务场景生成对应的 graph protocol, 然后请求 media-processing 模块</li>
+<li>media-processing : 根据 graph protocol 协议创建音视频处理节点, 建立节点之间的数据传输关系, 对音视频进行处理</li>
+</ul>
+<h3 id="通信协议设计"><a href="#通信协议设计" class="headerlink" title="通信协议设计"></a>通信协议设计</h3><p>下面我以 1 路 rtc 流转 2路 rtmp 流(音频需要转码)为例, 展示了graph protocol 的 协议表示:</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br><span class="line">37</span><br><span class="line">38</span><br><span class="line">39</span><br><span class="line">40</span><br><span class="line">41</span><br><span class="line">42</span><br><span class="line">43</span><br><span class="line">44</span><br><span class="line">45</span><br><span class="line">46</span><br><span class="line">47</span><br><span class="line">48</span><br><span class="line">49</span><br><span class="line">50</span><br><span class="line">51</span><br><span class="line">52</span><br><span class="line">53</span><br><span class="line">54</span><br><span class="line">55</span><br><span class="line">56</span><br><span class="line">57</span><br><span class="line">58</span><br><span class="line">59</span><br><span class="line">60</span><br><span class="line">61</span><br><span class="line">62</span><br><span class="line">63</span><br><span class="line">64</span><br><span class="line">65</span><br><span class="line">66</span><br><span class="line">67</span><br><span class="line">68</span><br><span class="line">69</span><br></pre></td><td class="code"><pre><span class="line">// 输入节点</span><br><span class="line">&quot;inputs&quot; : [</span><br><span class="line">	&#123;</span><br><span class="line">		&quot;type&quot; : &quot;rtc&quot;,</span><br><span class="line">		&quot;args&quot;: &quot;stream_name=123456_1&amp;uid=100&quot;</span><br><span class="line">	&#125;</span><br><span class="line">],</span><br><span class="line">// 音频处理节点</span><br><span class="line">&quot;audiofilters&quot; : [</span><br><span class="line">	&#123;</span><br><span class="line">		&quot;type&quot; : &quot;opusdecoder&quot;,</span><br><span class="line">		&quot;args&quot; : &quot;sample_rate=48000&amp;channels=1&amp;fmt=s16le&quot;</span><br><span class="line">	&#125;,</span><br><span class="line">	&#123;</span><br><span class="line">		&quot;type&quot; : &quot;aacencoder&quot;,</span><br><span class="line">		&quot;args&quot; : &quot;sample_rate=48000&amp;channels=1&amp;fmt=s16le&quot;</span><br><span class="line">	&#125;</span><br><span class="line">],</span><br><span class="line">// 使用数据传递链的形式表达各节点数据传输关系</span><br><span class="line">// 输出节点 </span><br><span class="line">&quot;outpus&quot; : [</span><br><span class="line">	&#123;</span><br><span class="line">		&quot;type&quot;: &quot;rtmp&quot;,</span><br><span class="line">		&quot;args&quot;: &quot;rtmp://baiducdn.com/live/test&quot;</span><br><span class="line">	&#125;,</span><br><span class="line">	&#123;</span><br><span class="line">		&quot;type&quot;: &quot;rtmp&quot;,</span><br><span class="line">		&quot;args&quot;: &quot;rtmp://tengxuncdn.com/live/test&quot;</span><br><span class="line">	&#125;</span><br><span class="line">],</span><br><span class="line">&quot;links&quot; : [</span><br><span class="line">    // 视频数据传递链条</span><br><span class="line">    &#123;</span><br><span class="line">		&#123;</span><br><span class="line">			&quot;type&quot; :&quot;input&quot;,</span><br><span class="line">			&quot;index&quot; : 0,</span><br><span class="line">			&quot;data_type&quot; : &quot;encoded_video&quot;</span><br><span class="line">		&#125;</span><br><span class="line">		&#123;</span><br><span class="line">			&quot;type&quot; : &quot;output&quot;,</span><br><span class="line">			&quot;index&quot;, 0,</span><br><span class="line">			&quot;data_type&quot; : &quot;encoded_video&quot;</span><br><span class="line">		&#125;</span><br><span class="line">	&#125;,</span><br><span class="line">    // 音频数据传递链条</span><br><span class="line">    &#123;</span><br><span class="line">		&#123;</span><br><span class="line">			&quot;type&quot; :&quot;input&quot;,</span><br><span class="line">			&quot;index&quot; : 0,</span><br><span class="line">			&quot;data_type&quot; : &quot;encoded_audio&quot;</span><br><span class="line">		&#125;,</span><br><span class="line">		&#123;</span><br><span class="line">			&quot;type&quot; : &quot;audiofilter&quot;,</span><br><span class="line">			&quot;index&quot;, 0,</span><br><span class="line">			&quot;data_type&quot; : &quot;raw_audio&quot;</span><br><span class="line">		&#125;,</span><br><span class="line">		&#123;</span><br><span class="line">			&quot;type&quot; : &quot;audiofilter&quot;,</span><br><span class="line">			&quot;index&quot;, 1,</span><br><span class="line">			&quot;data_type&quot; : &quot;encoded_audio&quot;</span><br><span class="line">		&#125;,</span><br><span class="line">		&#123;</span><br><span class="line">			&quot;type&quot; : &quot;output&quot;,</span><br><span class="line">			&quot;index&quot;, 0,</span><br><span class="line">			&quot;data_type&quot; : &quot;encoded_audio&quot;</span><br><span class="line">		&#125;,</span><br><span class="line">    &#125;</span><br><span class="line">]</span><br><span class="line"></span><br></pre></td></tr></table></figure>
+<h3 id="音视频处理模块设计"><a href="#音视频处理模块设计" class="headerlink" title="音视频处理模块设计"></a>音视频处理模块设计</h3><p>media-processing 需要对各类的场景的graph支持, 因此基于场景的编码实现并不能满足要求, 我们需要统一的构建流程对各类 graph 支持, 下面我通过 4 个小节阐述媒体处理的设计:</p>
+<h4 id="1-基于抽象接口"><a href="#1-基于抽象接口" class="headerlink" title="1.基于抽象接口"></a>1.基于抽象接口</h4><p>我们将处理节点抽象为InputStream、AudioFilter、VideoFilter、OutputStream 4 类, 具体节点均需实现对应接口定义的功能。</p>
+<figure class="highlight c++"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br></pre></td><td class="code"><pre><span class="line"><span class="class"><span class="keyword">class</span> <span class="title">InputStreamInterface</span> &#123;</span></span><br><span class="line"><span class="keyword">public</span>:</span><br><span class="line">    <span class="comment">// 添加订阅者, 把处理好的数据传递给后续节点</span></span><br><span class="line">    <span class="function"><span class="keyword">void</span> <span class="title">add_audio_sink</span><span class="params">(AudioFilterInterface* sink)</span></span>;</span><br><span class="line">    <span class="function"><span class="keyword">void</span> <span class="title">add_video_sink</span><span class="params">(VideoFilterInterface* sink)</span></span>;</span><br><span class="line">&#125;; </span><br><span class="line"></span><br><span class="line"><span class="class"><span class="keyword">class</span> <span class="title">AudioFilterInterface</span> &#123;</span></span><br><span class="line"><span class="keyword">public</span>:</span><br><span class="line">    <span class="comment">// 接收前置节点的数据</span></span><br><span class="line">    <span class="function"><span class="keyword">void</span> <span class="title">on_audio_frame</span><span class="params">(AudioFrame frame)</span></span>;</span><br><span class="line"></span><br><span class="line">    <span class="comment">// 添加订阅者, 把处理好的数据传递给后续节点</span></span><br><span class="line">    <span class="function"><span class="keyword">void</span> <span class="title">add_audio_sink</span><span class="params">(AudioFilterInterface* sink)</span></span>;</span><br><span class="line">&#125;;</span><br><span class="line"></span><br><span class="line"><span class="class"><span class="keyword">class</span> <span class="title">VideoFilterInterface</span> &#123;</span></span><br><span class="line"><span class="keyword">public</span>:</span><br><span class="line">    <span class="comment">// 接收前置节点的数据</span></span><br><span class="line">    <span class="function"><span class="keyword">void</span> <span class="title">on_video_frame</span><span class="params">(VideoFrame frame)</span></span>;</span><br><span class="line"></span><br><span class="line">    <span class="comment">// 添加订阅者, 把处理好的数据传递给后续节点</span></span><br><span class="line">    <span class="function"><span class="keyword">void</span> <span class="title">add_video_sink</span><span class="params">(VideoFilterInterface* sink)</span></span>;</span><br><span class="line">&#125;;</span><br><span class="line"></span><br><span class="line"><span class="class"><span class="keyword">class</span> <span class="title">OutputStreamInterface</span> &#123;</span></span><br><span class="line"><span class="keyword">public</span>:</span><br><span class="line">    <span class="comment">// 接收音视频数据</span></span><br><span class="line">    <span class="function"><span class="keyword">void</span> <span class="title">on_audio_frame</span><span class="params">(AudioFrame frame)</span></span>;</span><br><span class="line">    <span class="function"><span class="keyword">void</span> <span class="title">on_video_frame</span><span class="params">(VideoFrame frame)</span></span>;</span><br><span class="line">&#125;;</span><br></pre></td></tr></table></figure>
+
+<h4 id="2-多线程-or-多进程"><a href="#2-多线程-or-多进程" class="headerlink" title="2.多线程 or 多进程"></a>2.多线程 or 多进程</h4><p>多线程程序可以避免进程上下文切换带来的性能消耗, 但如果进程出现异常导致进程奔溃, 会引起全部任务中断, 多进程则可以保证单个任务的异常不会扩散。由于需要对接第三方服务带来的不可控因素, 我们真实环境选择了多进程模型实现。</p>
+<h4 id="3-音视频同步"><a href="#3-音视频同步" class="headerlink" title="3.音视频同步"></a>3.音视频同步</h4><p>从上面的模型中, 我们可以看出, 音视频流是分离单独处理的, 音视频数据流经各个节点到输出节点, 由于中间节点数据处理时间消耗各不相同, 那么在输出节点如何保证同步呢? 答案是实现统一的音视频数据交织器InterLeaver, 在InterLeaver 模块中设置最大容忍的时间差, 如果超出预期需要及时报警。</p>
+<h4 id="4-反应式编程在媒体处理中的应用"><a href="#4-反应式编程在媒体处理中的应用" class="headerlink" title="4.反应式编程在媒体处理中的应用"></a>4.反应式编程在媒体处理中的应用</h4><p>现在我们讨论单个节点如何进行驱动, 输入输出我们通常可以采用 单线程 + epoll io 模型进行驱动, 开源库 libev、 libuv 对此进行了很好的封装, 在这里我们不做重点讨论, 本节我们重点讨论 AudioFilter VideoFilter 节点该如何驱动。  </p>
+<p>AudioFilter、VideoFilter 的特点是: 数据帧驱动。这与反应式编程完美契合, 下面我直接以音频编码器的例子展示其应用:</p>
+<figure class="highlight c++"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br></pre></td><td class="code"><pre><span class="line"><span class="class"><span class="keyword">class</span> <span class="title">AudioEncoderWrapper</span> :</span> <span class="keyword">public</span> AudioFilterInterface &#123;</span><br><span class="line"><span class="keyword">public</span>:</span><br><span class="line">    <span class="comment">// 接收前置节点的数据</span></span><br><span class="line">    <span class="function"><span class="keyword">void</span> <span class="title">on_video_frame</span><span class="params">(AudioFrame frame)</span> </span>&#123;</span><br><span class="line">        _taks_queue-&gt;<span class="built_in">post_task</span>([<span class="keyword">this</span>,frame]()&#123;</span><br><span class="line">            _encoder-&gt;<span class="built_in">encode</span>(frame);</span><br><span class="line">        &#125;);</span><br><span class="line">    &#125;</span><br><span class="line"></span><br><span class="line">    <span class="comment">// 添加订阅者, 把处理好的数据传递给后续节点</span></span><br><span class="line">    <span class="function"><span class="keyword">void</span> <span class="title">add_video_sink</span><span class="params">(AudioFilterInterface* sink)</span> </span>&#123;</span><br><span class="line">        _sinks.<span class="built_in">push_back</span>(sink);</span><br><span class="line">    &#125;</span><br><span class="line"></span><br><span class="line">    <span class="comment">// 编码后的数据会回调到这里</span></span><br><span class="line">    <span class="function"><span class="keyword">void</span> <span class="title">on_encoded_frame</span><span class="params">(AudioFrame frame)</span> </span>&#123;</span><br><span class="line">        <span class="keyword">for</span> (<span class="keyword">auto</span>&amp; sink : _sinks) &#123;</span><br><span class="line">            sink-&gt;<span class="built_in">on_audio_frame</span>(frame);</span><br><span class="line">        &#125;</span><br><span class="line">    &#125;</span><br><span class="line"></span><br><span class="line"><span class="keyword">protected</span>:</span><br><span class="line">    AACEncoder* _encoder = <span class="literal">nullptr</span>;</span><br><span class="line">    TaskQueue* _task_queue;</span><br><span class="line">    std::vector&lt;AudioFilterInterface*&gt; _sinks;</span><br><span class="line">&#125;;</span><br><span class="line"></span><br></pre></td></tr></table></figure>
+
+<p>我们通过将一次编码任务封装成可执行对象, 投递到TaskQueue, TaskQueue 内部使用消息驱动的方式不断获取任务、执行任务, 使用TaskQueue 有如下优点:  </p>
+<ol>
+<li>节点解耦, 异步执行, 前置节点只需要将收到的数据帧抛出即可</li>
+<li>AACEncoder 编码功能与线程驱动解耦, AACEncoder 模块功能单一利于维护</li>
+<li>节点间共享处理线程成为可能, 我们可以在上层应用创建TaskQueue, 将其传递给多个节点使用, 在实际应用中, 音频处理通常耗时较短, 可以多个处理节点共用一个TaskQueue(一个TaskQueue由一个线程驱动), 避免每个节点都要创建单独的驱动线程带来的cpu切换消耗</li>
+</ol>
+<h3 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h3><p>以上就是全部关于 MPU 服务的设计与实现, 我在实践的过程中深深感受到, 良好的设计架构很重要, 真正实施的过程中我们也需要依赖强大的基础件支持, 例如上文提到的TaskQueue, 还有未细化说明的节点设计、graph 构建等等, 如何能够保证节点足够灵活、易扩展, 也需要依赖强大的基础件支持, 作为一个一线开发人员, 我们也应多花时间在基础设施的建设上。</p>
+
+      
+    </div>
+    
+    
+    
+
+    
+
+    
+
+    
+
+    <footer class="post-footer">
+      
+
+      
+      
+      
+
+      
+        <div class="post-nav">
+          <div class="post-nav-next post-nav-item">
+            
+              <a href="/2021/06/26/single-responsibility-principle/" rel="next" title="单一职责原则">
+                <i class="fa fa-chevron-left"></i> 单一职责原则
+              </a>
+            
+          </div>
+
+          <span class="post-nav-divider"></span>
+
+          <div class="post-nav-prev post-nav-item">
+            
+          </div>
+        </div>
+      
+
+      
+      
+    </footer>
+  </div>
+  
+  
+  
+  </article>
+
+
+
+    <div class="post-spread">
+      
+    </div>
+  </div>
+
+
+          </div>
+          
+
+
+          
+
+  
+
+
+
+        </div>
+        
+          
+  
+  <div class="sidebar-toggle">
+    <div class="sidebar-toggle-line-wrap">
+      <span class="sidebar-toggle-line sidebar-toggle-line-first"></span>
+      <span class="sidebar-toggle-line sidebar-toggle-line-middle"></span>
+      <span class="sidebar-toggle-line sidebar-toggle-line-last"></span>
+    </div>
+  </div>
+
+  <aside id="sidebar" class="sidebar">
+    
+    <div class="sidebar-inner">
+
+      
+
+      
+        <ul class="sidebar-nav motion-element">
+          <li class="sidebar-nav-toc sidebar-nav-active" data-target="post-toc-wrap">
+            Table of Contents
+          </li>
+          <li class="sidebar-nav-overview" data-target="site-overview-wrap">
+            Overview
+          </li>
+        </ul>
+      
+
+      <section class="site-overview-wrap sidebar-panel">
+        <div class="site-overview">
+          <div class="site-author motion-element" itemprop="author" itemscope itemtype="http://schema.org/Person">
+            
+              <p class="site-author-name" itemprop="name"></p>
+              <p class="site-description motion-element" itemprop="description"></p>
+          </div>
+
+          <nav class="site-state motion-element">
+
+            
+              <div class="site-state-item site-state-posts">
+              
+                <a href="/archives/">
+              
+                  <span class="site-state-item-count">4</span>
+                  <span class="site-state-item-name">posts</span>
+                </a>
+              </div>
+            
+
+            
+              
+              
+              <div class="site-state-item site-state-categories">
+                <a href="/categories/index.html">
+                  <span class="site-state-item-count">4</span>
+                  <span class="site-state-item-name">categories</span>
+                </a>
+              </div>
+            
+
+            
+
+          </nav>
+
+          
+
+          
+
+          
+          
+
+          
+          
+
+          
+
+        </div>
+      </section>
+
+      
+      <!--noindex-->
+        <section class="post-toc-wrap motion-element sidebar-panel sidebar-panel-active">
+          <div class="post-toc">
+
+            
+              
+            
+
+            
+              <div class="post-toc-content"><ol class="nav"><li class="nav-item nav-level-3"><a class="nav-link" href="#%E5%9F%BA%E6%9C%AC%E6%A6%82%E5%BF%B5"><span class="nav-number">1.</span> <span class="nav-text">基本概念</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#%E9%9C%80%E6%B1%82%E6%9D%A5%E6%BA%90"><span class="nav-number">2.</span> <span class="nav-text">需求来源</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#%E5%9C%BA%E6%99%AF%E6%8F%8F%E8%BF%B0"><span class="nav-number">3.</span> <span class="nav-text">场景描述</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#Pipeline-%E6%A8%A1%E5%9E%8B%E6%8A%BD%E8%B1%A1"><span class="nav-number">4.</span> <span class="nav-text">Pipeline 模型抽象</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#%E6%9E%B6%E6%9E%84%E8%AE%BE%E8%AE%A1"><span class="nav-number">5.</span> <span class="nav-text">架构设计</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#%E9%80%9A%E4%BF%A1%E5%8D%8F%E8%AE%AE%E8%AE%BE%E8%AE%A1"><span class="nav-number">6.</span> <span class="nav-text">通信协议设计</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#%E9%9F%B3%E8%A7%86%E9%A2%91%E5%A4%84%E7%90%86%E6%A8%A1%E5%9D%97%E8%AE%BE%E8%AE%A1"><span class="nav-number">7.</span> <span class="nav-text">音视频处理模块设计</span></a><ol class="nav-child"><li class="nav-item nav-level-4"><a class="nav-link" href="#1-%E5%9F%BA%E4%BA%8E%E6%8A%BD%E8%B1%A1%E6%8E%A5%E5%8F%A3"><span class="nav-number">7.1.</span> <span class="nav-text">1.基于抽象接口</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#2-%E5%A4%9A%E7%BA%BF%E7%A8%8B-or-%E5%A4%9A%E8%BF%9B%E7%A8%8B"><span class="nav-number">7.2.</span> <span class="nav-text">2.多线程 or 多进程</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#3-%E9%9F%B3%E8%A7%86%E9%A2%91%E5%90%8C%E6%AD%A5"><span class="nav-number">7.3.</span> <span class="nav-text">3.音视频同步</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#4-%E5%8F%8D%E5%BA%94%E5%BC%8F%E7%BC%96%E7%A8%8B%E5%9C%A8%E5%AA%92%E4%BD%93%E5%A4%84%E7%90%86%E4%B8%AD%E7%9A%84%E5%BA%94%E7%94%A8"><span class="nav-number">7.4.</span> <span class="nav-text">4.反应式编程在媒体处理中的应用</span></a></li></ol></li><li class="nav-item nav-level-3"><a class="nav-link" href="#%E6%80%BB%E7%BB%93"><span class="nav-number">8.</span> <span class="nav-text">总结</span></a></li></ol></div>
+            
+
+          </div>
+        </section>
+      <!--/noindex-->
+      
+
+      
+
+    </div>
+  </aside>
+
+
+        
+      </div>
+    </main>
+
+    <footer id="footer" class="footer">
+      <div class="footer-inner">
+        <div class="copyright">&copy; <span itemprop="copyrightYear">2021</span>
+  <span class="with-love">
+    <i class="fa fa-user"></i>
+  </span>
+  <span class="author" itemprop="copyrightHolder">fanwenyao</span>
+
+  
+</div>
+
+
+  <div class="powered-by">Powered by <a class="theme-link" target="_blank" href="https://hexo.io">Hexo</a></div>
+
+
+
+  <span class="post-meta-divider">|</span>
+
+
+
+  <div class="theme-info">Theme &mdash; <a class="theme-link" target="_blank" href="https://github.com/iissnan/hexo-theme-next">NexT.Gemini</a> v5.1.4</div>
+
+
+
+
+        
+
+
+
+
+
+
+
+        
+      </div>
+    </footer>
+
+    
+      <div class="back-to-top">
+        <i class="fa fa-arrow-up"></i>
+        
+      </div>
+    
+
+    
+
+  </div>
+
+  
+
+<script type="text/javascript">
+  if (Object.prototype.toString.call(window.Promise) !== '[object Function]') {
+    window.Promise = null;
+  }
+</script>
+
+
+
+
+
+
+
+
+
+  
+
+
+
+
+
+
+
+
+
+
+
+
+  
+  
+    <script type="text/javascript" src="/lib/jquery/index.js?v=2.1.3"></script>
+  
+
+  
+  
+    <script type="text/javascript" src="/lib/fastclick/lib/fastclick.min.js?v=1.0.6"></script>
+  
+
+  
+  
+    <script type="text/javascript" src="/lib/jquery_lazyload/jquery.lazyload.js?v=1.9.7"></script>
+  
+
+  
+  
+    <script type="text/javascript" src="/lib/velocity/velocity.min.js?v=1.2.1"></script>
+  
+
+  
+  
+    <script type="text/javascript" src="/lib/velocity/velocity.ui.min.js?v=1.2.1"></script>
+  
+
+  
+  
+    <script type="text/javascript" src="/lib/fancybox/source/jquery.fancybox.pack.js?v=2.1.5"></script>
+  
+
+
+  
+
+
+  <script type="text/javascript" src="/js/src/utils.js?v=5.1.4"></script>
+
+  <script type="text/javascript" src="/js/src/motion.js?v=5.1.4"></script>
+
+
+
+  
+  
+
+
+  <script type="text/javascript" src="/js/src/affix.js?v=5.1.4"></script>
+
+  <script type="text/javascript" src="/js/src/schemes/pisces.js?v=5.1.4"></script>
+
+
+
+  
+  <script type="text/javascript" src="/js/src/scrollspy.js?v=5.1.4"></script>
+<script type="text/javascript" src="/js/src/post-details.js?v=5.1.4"></script>
+
+
+
+  
+
+
+  <script type="text/javascript" src="/js/src/bootstrap.js?v=5.1.4"></script>
+
+
+
+  
+
+
+  
+
+
+
+
+	
+
+
+
+
+
+  
+
+
+
+
+
+  
+
+
+
+
+
+
+
+
+
+
+
+
+  
+
+
+
+
+
+  
+
+  
+
+  
+
+  
+  
+
+  
+
+  
+
+  
+
+</body>
+</html>
